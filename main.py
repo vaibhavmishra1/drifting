@@ -5,6 +5,8 @@ def main():
     parser.add_argument("--config", type=str, required=True, help="Path to YAML config.")
     parser.add_argument("--gen", action="store_true", help="Run generator training loop. Default runs MAE training.")
     parser.add_argument("--workdir", type=str, default="runs", help="Local workdir root for checkpoints/logs.")
+    parser.add_argument("--init-from", type=str, default="", help="Override config init_from (params-only init for fresh runs).")
+    parser.add_argument("--resume-from", type=str, default="", help="Resume full training state (params+optimizer+EMA+step) from this workdir.")
     args = parser.parse_args()
     args.output_dir = args.workdir
 

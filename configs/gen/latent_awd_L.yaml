@@ -66,6 +66,7 @@ train:
   negative_bank_size: 1000
   push_per_step: 64
   init_from: "hf://latent_L_sota"
+  resume_from: ""  # set to a workdir path to resume full state (params+optimizer+EMA+step)
 
   # AWD temperature annealing: starts near-uniform, sharpens over training
   awd_tau_max: 10.0

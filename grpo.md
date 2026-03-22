@@ -103,6 +103,23 @@ New config for AWD post-training of Drift-L. Key differences from `latent_sota_L
 - `loss_kwargs.awd_lambda: 0.1` — diversity penalty weight
 - `loss_kwargs.awd_bandwidth: 0.05` — KDE bandwidth
 - `awd_tau_max: 10.0 -> awd_tau_min: 0.5` — tau annealing schedule
+- `resume_from: ""` — optional: restore full training state from another workdir
+
+### `main.py` / `train.py` CLI
+
+New flags (override config values):
+| Flag | Description |
+|---|---|
+| `--init-from PATH` | Override `train.init_from` — params-only init for fresh runs (HF or local) |
+| `--resume-from PATH` | Override `train.resume_from` — restore full state (params+optimizer+EMA+step) |
+
+### `train.py` — `train_gen()` checkpoint loading
+
+Added `resume_from=""` parameter. The checkpoint loading priority is now:
+
+1. **Own workdir** — `restore_checkpoint(state, workdir)` always runs first. If `workdir/checkpoints/` has a checkpoint, training resumes from there (same run continuation).
+2. **resume_from** — If step is still 0 after (1) and `resume_from` is set, loads the **full training state** (params + optimizer + EMA + step counter) from the specified directory. Use this to continue from a previous run with different hyperparameters.
+3. **init_from** — If step is still 0 after (1) and (2) and `init_from` is set, loads **params only** (fresh optimizer, EMA = params, step = 0). Use this for post-training from a pretrained model.
 
 ---
 
@@ -165,6 +182,54 @@ python inference.py --init-from runs/awd_latent_L --cfg-scale 1.0 \
   --num-samples 50000 --eval-batch-size 256 --json-out results_awd.json \
   --use-wandb --wandb-entity YOUR_ENTITY --wandb-project YOUR_PROJECT
 ```
+
+### Resume Interrupted Training
+
+Re-run the exact same command — checkpoints in `--workdir` are auto-detected:
+
+```bash
+python main.py --gen --config configs/gen/latent_awd_L.yaml --workdir runs/awd_latent_L
+```
+
+Training resumes from the latest checkpoint. The tau annealing schedule
+continues correctly based on the restored step counter.
+
+### AWD from a Locally-Trained Model
+
+If you trained the base model locally instead of using HF weights:
+
+```bash
+# Option A: params-only init (fresh optimizer, EMA = params, step = 0)
+python main.py --gen --config configs/gen/latent_awd_L.yaml \
+  --workdir runs/awd_local --init-from runs/gen_latent_sota_L
+
+# Option B: full state resume (preserves optimizer + EMA + step)
+python main.py --gen --config configs/gen/latent_awd_L.yaml \
+  --workdir runs/awd_local --resume-from runs/gen_latent_sota_L
+```
+
+Use `--init-from` (Option A) for a clean post-training start. Use
+`--resume-from` (Option B) to continue training with the existing optimizer
+momentum and EMA quality.
+
+### Chain AWD Runs with Different Hyperparameters
+
+Continue a previous AWD run with modified settings (e.g., different tau schedule):
+
+```bash
+# First run: 10k steps with default tau schedule
+python main.py --gen --config configs/gen/latent_awd_L.yaml \
+  --workdir runs/awd_v1
+
+# Second run: continue from v1's full state, new workdir, modified config
+python main.py --gen --config configs/gen/latent_awd_L_v2.yaml \
+  --workdir runs/awd_v2 --resume-from runs/awd_v1
+```
+
+`--resume-from` loads the full training state (params + optimizer + EMA + step
+counter) from `runs/awd_v1`, then trains into `runs/awd_v2` with the new
+config's hyperparameters. The step counter carries forward, so adjust
+`total_steps` accordingly.
 
 ---
 

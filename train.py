@@ -246,6 +246,7 @@ def train_gen(
     push_at_resume=3000,  # extra fill multiplier when resuming
     awd_tau_max=10.0,  # AWD: initial temperature for advantage softmax
     awd_tau_min=0.5,  # AWD: final temperature after linear annealing
+    resume_from="",  # restore full TrainState (params+optimizer+EMA+step) from this workdir
     workdir="runs",  # run root containing checkpoints/logs
 ):
     """
@@ -269,6 +270,14 @@ def train_gen(
     rng_train, rng_eval = jax.random.split(rng)
     state = init_state_from_dummy_input(model, optimizer, TrainState, rng, model.dummy_input(), model.rng_keys(), ema_decay=ema_decay)
     state = restore_checkpoint(state=state, workdir=workdir)
+    if int(jax.device_get(state.step)) == 0 and resume_from:
+        log_for_0("Resuming full training state from resume_from=%s", resume_from)
+        state = restore_checkpoint(state=state, workdir=resume_from)
+        resumed_step = int(jax.device_get(state.step))
+        if resumed_step == 0:
+            log_for_0("WARNING: resume_from=%s yielded step=0 (no checkpoint found?)", resume_from)
+        else:
+            log_for_0("Resumed at step %d from %s", resumed_step, resume_from)
     if int(jax.device_get(state.step)) == 0 and init_from:
         log_for_0("Initializing generator params from init_from=%s", init_from)
         state = maybe_init_state_params(
@@ -481,12 +490,18 @@ def main_gen(config, output_dir="runs"):
 def main(args):
     run_init()
     config = load_config(args.config)
+    if getattr(args, 'init_from', ''):
+        config.train['init_from'] = args.init_from
+    if getattr(args, 'resume_from', ''):
+        config.train['resume_from'] = args.resume_from
     main_gen(config, output_dir=args.workdir)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="configs/gen/latent_ablation.yaml", help="Path to configuration file.")
     parser.add_argument("--workdir", type=str, default="runs", help="Local workdir root for checkpoints/logs.")
+    parser.add_argument("--init-from", type=str, default="", help="Override config init_from (params-only init for fresh runs).")
+    parser.add_argument("--resume-from", type=str, default="", help="Resume full training state (params+optimizer+EMA+step) from this workdir.")
     args = parser.parse_args()
     args.output_dir = args.workdir
 
