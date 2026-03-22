@@ -11,7 +11,30 @@ def cdist(x, y, eps=1e-8):
     sq_dist = xnorms[:, :, None] + ynorms[:, None, :] - 2 * xydot
     return jnp.sqrt(jnp.clip(sq_dist, a_min=eps))
 
-@partial(jax.jit, static_argnames=("R_list",))
+def compute_kde_rewards(gen, fixed_pos, bandwidth, diversity_weight):
+    """KDE-based distributional quality rewards for Advantage-Weighted Drifting.
+
+    r_i = log p_kde(x_i; {y_j}) - lambda * log q_kde(x_i; {x_j, j!=i})
+
+    Quality term measures proximity to real data via Gaussian KDE;
+    diversity penalty discourages mode collapse using leave-one-out
+    KDE among generated samples. Both use the same bandwidth.
+    """
+    C_g = gen.shape[1]
+    C_p = fixed_pos.shape[1]
+
+    dist_gp = cdist(gen, fixed_pos)
+    log_p = jax.nn.logsumexp(-dist_gp ** 2 / (2 * bandwidth ** 2), axis=-1)
+    log_p = log_p - jnp.log(jnp.float32(C_p))
+
+    dist_gg = cdist(gen, gen)
+    diag_mask = jnp.eye(C_g, dtype=jnp.float32)[None] * 1e10
+    log_q = jax.nn.logsumexp(-(dist_gg + diag_mask) ** 2 / (2 * bandwidth ** 2), axis=-1)
+    log_q = log_q - jnp.log(jnp.maximum(jnp.float32(C_g - 1), 1.0))
+
+    return log_p - diversity_weight * log_q
+
+@partial(jax.jit, static_argnames=("R_list", "use_awd"))
 def drift_loss(
     gen,
     fixed_pos,
@@ -20,6 +43,10 @@ def drift_loss(
     weight_pos=None,
     weight_neg=None,
     R_list=(0.02, 0.05, 0.2),
+    use_awd=False,
+    awd_tau=1.0,
+    awd_lambda=0.1,
+    awd_bandwidth=0.05,
 ):
     '''
     Args:
@@ -128,7 +155,27 @@ def drift_loss(
     )
     gen_scaled = gen / scale_inputs
     diff = gen_scaled - goal_scaled
-    loss = jnp.mean(diff ** 2, axis=(-1, -2))
+
+    if use_awd:
+        per_sample_loss = jnp.mean(diff ** 2, axis=-1)  # [B, C_g]
+        gen_for_kde = old_gen / scale_inputs
+        pos_for_kde = fixed_pos / scale_inputs
+        rewards = jax.lax.stop_gradient(
+            compute_kde_rewards(gen_for_kde, pos_for_kde, awd_bandwidth, awd_lambda)
+        )
+        adv = (rewards - jnp.mean(rewards, axis=-1, keepdims=True)) / (
+            jnp.std(rewards, axis=-1, keepdims=True) + 1e-8
+        )
+        weights = jax.nn.softmax(adv / awd_tau, axis=-1) * jnp.float32(C_g)
+        weights = jax.lax.stop_gradient(weights)
+        loss = jnp.mean(weights * per_sample_loss, axis=-1)  # [B]
+        info['awd_reward_mean'] = rewards.mean()
+        info['awd_reward_std'] = rewards.std()
+        info['awd_adv_abs_max'] = jnp.abs(adv).max()
+        info['awd_weight_max'] = weights.max()
+    else:
+        loss = jnp.mean(diff ** 2, axis=(-1, -2))
+
     info = jax.tree.map(lambda x: x.mean(), info)
 
     return loss, info

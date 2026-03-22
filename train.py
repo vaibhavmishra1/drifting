@@ -44,7 +44,7 @@ def _generator_model_config(model) -> dict:
     }
 
 
-def train_step(state: TrainState, labels, samples, negative_samples, feature_params, feature_apply, rng_init: jax.random.PRNGKey, learning_rate_fn: Any = None, cfg_min=1.0, cfg_max=4.0, neg_cfg_pw=1.0, no_cfg_frac=0.0, gen_per_label=8, activation_kwargs=dict(), loss_kwargs=dict(R_list=[0.02, 0.05, 0.2]), max_grad_norm=2.0):
+def train_step(state: TrainState, labels, samples, negative_samples, feature_params, feature_apply, rng_init: jax.random.PRNGKey, learning_rate_fn: Any = None, cfg_min=1.0, cfg_max=4.0, neg_cfg_pw=1.0, no_cfg_frac=0.0, gen_per_label=8, activation_kwargs=dict(), loss_kwargs=dict(R_list=[0.02, 0.05, 0.2]), max_grad_norm=2.0, awd_tau=1.0):
     """Run one generator optimization step.
 
     Args:
@@ -129,6 +129,7 @@ def train_step(state: TrainState, labels, samples, negative_samples, feature_par
                     weight_gen=jnp.ones_like(feature_gen[:, :, 0]),
                     weight_pos=jnp.ones_like(feature_pos[:, :, 0]),
                     weight_neg=repeat(uncond_w, 'b -> (b f) k', f=B // uncond_w.shape[0], k=n_uncond),
+                    awd_tau=awd_tau,
                     **loss_kwargs,
                 )
                 return loss, info
@@ -243,6 +244,8 @@ def train_gen(
     init_from="",  # `hf://<name>` or local dir of model
     push_per_step=0,  # memory-bank fill factor per train step
     push_at_resume=3000,  # extra fill multiplier when resuming
+    awd_tau_max=10.0,  # AWD: initial temperature for advantage softmax
+    awd_tau_min=0.5,  # AWD: final temperature after linear annealing
     workdir="runs",  # run root containing checkpoints/logs
 ):
     """
@@ -277,6 +280,12 @@ def train_gen(
     gen_step_jit = jax.jit(partial(generate_step, apply_fn=state.apply_fn, postprocess_fn=postprocess_fn))
     assert feature_params is not None, "feature_params must be provided for multi-host safe feature extraction"
     loss_kwargs['R_list'] = tuple(loss_kwargs['R_list'])
+    _use_awd = bool(loss_kwargs.get('use_awd', False))
+    if _use_awd:
+        log_for_0("AWD post-training enabled: tau %.1f->%.1f, lambda=%.2f, bandwidth=%.3f",
+                  awd_tau_max, awd_tau_min,
+                  float(loss_kwargs.get('awd_lambda', 0.1)),
+                  float(loss_kwargs.get('awd_bandwidth', 0.05)))
     state_sharding = jax.tree.map(lambda x: x.sharding, state)
     train_step_jit = jax.jit(partial(train_step, rng_init=rng_train, learning_rate_fn=learning_rate_fn, feature_apply=activation_fn, activation_kwargs=activation_kwargs, loss_kwargs=loss_kwargs, **forward_dict, max_grad_norm=max_grad_norm), out_shardings=(state_sharding, None))
 
@@ -334,11 +343,19 @@ def train_gen(
         if (step == initial_step):
             profile_metrics = profile_func(train_step_jit, (state, merged_labels, merged_positive, merged_negative, feature_params), name="train_step")
 
-        new_state, metrics = train_step_jit(state, merged_labels, merged_positive, merged_negative, feature_params)
+        _awd_kw = {}
+        if _use_awd:
+            _awd_progress = min(step / max(total_steps - 1, 1), 1.0)
+            _awd_kw['awd_tau'] = jnp.float32(
+                awd_tau_max - (awd_tau_max - awd_tau_min) * _awd_progress
+            )
+        new_state, metrics = train_step_jit(state, merged_labels, merged_positive, merged_negative, feature_params, **_awd_kw)
         metrics = jax.tree.map(lambda x: x.mean(), metrics)
         total_time = time.time() - start_time
         metrics['total_time'] = total_time
         metrics['process_time'] = process_time
+        if _use_awd and 'awd_tau' in _awd_kw:
+            metrics['awd_tau'] = float(_awd_kw['awd_tau'])
         metrics['kimg'] = (step + 1) * merged_positive.shape[0] / 1000.0
         metrics['forward_kimg'] = (step + 1) * merged_positive.shape[0] / 1000.0 * forward_dict['gen_per_label']
         metrics.update(profile_metrics)
