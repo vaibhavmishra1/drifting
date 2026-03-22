@@ -1,0 +1,8 @@
+# Optional: conda skeleton only. For a full GPU stack, prefer:
+#   bash scripts/setup_training.sh
+name: drifting-release
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip

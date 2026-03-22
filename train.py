@@ -349,8 +349,19 @@ def train_gen(
         process_time = time.time() - start_time
 
         profile_metrics = dict()
-        if (step == initial_step):
-            profile_metrics = profile_func(train_step_jit, (state, merged_labels, merged_positive, merged_negative, feature_params), name="train_step")
+        # `profile_func` lowers/compiles the full train step without running it; on some
+        # single-GPU + jax.distributed.initialize setups this has left the CUDA backend
+        # unable to run the subsequent FID sanity `generate_step` (PjRtDevice not found).
+        _n_dev = jax.process_count() * jax.local_device_count()
+        if step == initial_step and (
+            os.environ.get("DRIFTING_PROFILE_TRAIN_STEP", "").lower() in ("1", "true", "yes")
+            or _n_dev > 1
+        ):
+            profile_metrics = profile_func(
+                train_step_jit,
+                (state, merged_labels, merged_positive, merged_negative, feature_params),
+                name="train_step",
+            )
 
         _awd_kw = {}
         if _use_awd:

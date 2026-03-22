@@ -107,6 +107,8 @@ All artifacts are hosted on HuggingFace at [`Goodeat/drifting`](https://huggingf
 
 ### Install Dependencies
 
+**TPU (original release stack)**
+
 ```bash
 conda create -n drifting-release python=3.10 -y
 conda activate drifting-release
@@ -118,6 +120,35 @@ For local TPU runs, keep `JAX_PLATFORMS=tpu,cpu` in the shell before running
 latent-cache building, training, or evaluation. This keeps TPU as the default
 backend while still exposing a CPU backend for Flax VAE / checkpoint restore
 paths that expect it.
+
+**Local NVIDIA GPU (CUDA 12, single-GPU friendly)**
+
+From the repo root:
+
+```bash
+bash scripts/setup_training.sh
+conda activate drifting-release   # or $DRIFTING_CONDA_ENV if you overrode the name
+```
+
+This creates the conda env, installs JAX 0.4.37 + CUDA wheels, installs
+`requirements-gpu.txt` (Flax, PyTorch+CUDA, Hugging Face, etc.), creates
+`data/` subfolders, downloads FID reference stats, and (unless
+`DRIFTING_SKIP_SMOKE_IMAGENET=1`) builds a **smoke** ImageNet tree for sanity
+checks — replace `data/imagenet` with real ILSVRC data for training.
+
+Example generator run (online VAE, no latent cache — good for one GPU):
+
+```bash
+export HF_HOME="$PWD/data/hf_cache"   # optional; Hugging Face cache
+python main.py --gen --config configs/gen/local_1gpu.yaml --workdir runs/local_dev
+```
+
+Use `num_workers: 0` in the dataset config when using JAX on GPU (forked PyTorch
+workers are unsafe with the JAX runtime). The provided `local_1gpu.yaml` already
+sets this.
+
+Optional: set `DRIFTING_PROFILE_TRAIN_STEP=1` to enable the step-0 train-step
+profiler on a single-GPU job (off by default to save compile time).
 
 ### Download ImageNet
 
@@ -137,14 +168,24 @@ imagenet/
 
 ### Path Configuration
 
-Before running training or evaluation, open `utils/env.py` and set these constants for your machine:
+Defaults in `utils/env.py` point at `<repo>/data/...`. Override with environment
+variables (no file edits required):
 
-- `IMAGENET_PATH`: root of the ImageNet directory (expects `train/` and `val/` subdirectories).
-- `IMAGENET_CACHE_PATH`: root of the latent cache directory (only needed for latent-generator training).
-- `IMAGENET_FID_NPZ`: path to the ImageNet-256 FID reference stats `.npz`.
-- `IMAGENET_PR_NPZ`: path to the ImageNet precision/recall reference stats `.npz`.
-- `HF_ROOT`: local cache directory for downloaded HuggingFace artifacts.
-- `HF_REPO_ID`: HuggingFace repo ID for the release checkpoints (keep as `Goodeat/drifting`).
+| Variable | Purpose |
+| -------- | ------- |
+| `DRIFTING_IMAGENET_PATH` | ImageNet root (`train/`, `val/`). |
+| `DRIFTING_IMAGENET_CACHE_PATH` | Latent `.pt` cache (latent + `use_cache: true`). |
+| `DRIFTING_IMAGENET_FID_NPZ` | ImageNet-256 FID reference `.npz`. |
+| `DRIFTING_IMAGENET_PR_NPZ` | Precision/recall reference (50k eval only). |
+| `DRIFTING_HF_ROOT` | Hugging Face download cache (same role as former `HF_ROOT`). |
+| `DRIFTING_HF_REPO_ID` | Release repo id (default `Goodeat/drifting`). |
+
+Multi-process GPU: set `JAX_COORDINATOR_ADDRESS`, `DRIFTING_JAX_NUM_PROCESSES`,
+and `DRIFTING_JAX_PROCESS_ID` per rank (see JAX multi-host docs). To force the
+legacy coordinator path on a **single** visible GPU, set
+`DRIFTING_NO_DISTRIBUTED_INIT=1`.
+
+You can still edit `utils/env.py` directly if you prefer hard-coded paths.
 
 FID/PR reference stats can be downloaded from [Google Drive](https://drive.google.com/drive/folders/1Tr_6PXF2WMYkSlCbbkP_0FRhEjAXx5gb) (migrated from MeanFlow).
 

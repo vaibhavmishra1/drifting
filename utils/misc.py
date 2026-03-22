@@ -54,7 +54,38 @@ def run_init():
     global _did_run_init
     if _did_run_init:
         return
-    jax.distributed.initialize()
+    if any(
+        os.environ.get(k)
+        for k in (
+            "TPU_CHIPS_PER_HOST",
+            "TPU_WORKER_ID",
+            "CLOUD_TPU_TASK_ID",
+            "TPU_NAME",
+            "LIBTPU_INIT_ARGS",
+        )
+    ):
+        jax.distributed.initialize()
+    elif os.environ.get("DRIFTING_NO_DISTRIBUTED_INIT", "").lower() in ("1", "true", "yes"):
+        pass
+    else:
+        # One visible GPU + one process: the default JAX client is enough. Using
+        # jax.distributed.initialize() with a localhost coordinator has triggered
+        # ``PjRtDevice not found: cuda:0`` when running FID ``generate_step`` on
+        # some CUDA + jaxlib builds.
+        multi_proc_hint = int(os.environ.get("WORLD_SIZE", "1")) > 1 or int(
+            os.environ.get("DRIFTING_JAX_NUM_PROCESSES", "1")
+        ) > 1
+        if jax.local_device_count() == 1 and not multi_proc_hint:
+            _did_run_init = True
+            return
+        port = os.environ.get("DRIFTING_JAX_COORDINATOR_PORT", "12355")
+        default_coord = f"127.0.0.1:{port}"
+        coord = os.environ.get("JAX_COORDINATOR_ADDRESS", default_coord)
+        jax.distributed.initialize(
+            coordinator_address=coord,
+            num_processes=int(os.environ.get("DRIFTING_JAX_NUM_PROCESSES", "1")),
+            process_id=int(os.environ.get("DRIFTING_JAX_PROCESS_ID", "0")),
+        )
     _did_run_init = True
 
 

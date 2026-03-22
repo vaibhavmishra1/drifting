@@ -36,21 +36,30 @@ def vae_enc_decode(replicate_params: bool = True):
         return _vae_cache[cache_key]
     
     vae, vae_params = FlaxAutoencoderKL.from_pretrained("pcuenq/sd-vae-ft-mse-flax")
+    # Host NumPy weights are safe to close over inside jax.jit (e.g. FID
+    # ``generate_step`` → ``postprocess_fn`` → VAE decode). Device-backed
+    # parameter trees can become invalid XLA constants (PjRtDevice not found)
+    # after long training runs on CUDA.
+    vae_params = jax.tree.map(np.asarray, vae_params)
 
     # Replicate params across all devices/processes via global mesh.
     if replicate_params:
         from jax.sharding import NamedSharding, PartitionSpec as P
         from utils.hsdp_util import get_global_mesh
 
-        mesh = get_global_mesh()
-        replicated_sharding = NamedSharding(mesh, P())
-        def _replicate(x):
-            x = jnp.asarray(x) if isinstance(x, np.ndarray) else x
-            if jax.process_count() > 1:
-                return jax.make_array_from_process_local_data(replicated_sharding, x)
-            return jax.device_put(x, replicated_sharding)
+        if jax.process_count() > 1:
+            mesh = get_global_mesh()
+            replicated_sharding = NamedSharding(mesh, P())
 
-        vae_params = jax.tree.map(_replicate, vae_params)
+            def _replicate(x):
+                x = jnp.asarray(x) if isinstance(x, np.ndarray) else x
+                return jax.make_array_from_process_local_data(replicated_sharding, x)
+
+            vae_params = jax.tree.map(_replicate, vae_params)
+        elif any(getattr(d, "platform", "") == "tpu" for d in jax.local_devices()):
+            tpu0 = next(d for d in jax.local_devices() if d.platform == "tpu")
+            vae_params = jax.tree.map(lambda x: jax.device_put(np.asarray(x), tpu0), vae_params)
+        # else: single-process GPU/CPU — keep NumPy; traced decode embeds literals.
     else:
         vae_params = _put_tree_on_local_tpu(vae_params)
 
