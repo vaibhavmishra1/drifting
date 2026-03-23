@@ -62,8 +62,8 @@ train:
   train_batch_size: 128
   seed: 42
   total_steps: 20000
-  save_per_step: 2000
-  eval_per_step: 2000
+  save_per_step: 4000
+  eval_per_step: 4000
   eval_samples: 50000
   pos_per_sample: 64
   neg_per_sample: 32
@@ -92,7 +92,7 @@ train:
     every_k_block: 2
   loss_kwargs:
     R_list: [0.2, 0.05, 0.02]
-    use_awd: true
+    use_awd: false
     awd_lambda: 0.1
     awd_bandwidth: 0.05
   cfg_list: [1.0, 1.1, 1.2, 1.4, 1.6, 1.8, 2.0, 2.5, 3.0, 3.5]

@@ -477,11 +477,27 @@ def main_gen(config, output_dir="runs"):
         use_mae=bool(feature_cfg.get("use_mae", True)),
         postprocess_fn=postprocess_fn_noclip,
     )
+    train_cfg = dict(config.train)
+    # eval_batch_size in train config overrides the dataset-level eval batch size.
+    # Rebuild eval_loader with the smaller batch to avoid OOM during FID VAE decoding.
+    eval_loader = model_dict.eval_loader
+    if "eval_batch_size" in train_cfg:
+        override_eval_bsz = int(train_cfg.pop("eval_batch_size"))
+        from dataset.dataset import create_imagenet_split
+        eval_loader, _, _ = create_imagenet_split(
+            resolution=int(config.dataset.resolution),
+            use_aug=bool(config.dataset.get("use_aug", False)),
+            use_latent=bool(config.dataset.get("use_latent", False)),
+            use_cache=bool(config.dataset.get("use_cache", False)),
+            batch_size=override_eval_bsz // jax.process_count(),
+            split="val",
+            **config.dataset.kwargs,
+        )
     train_gen(
         model=model_dict.model,
         optimizer=model_dict.optimizer,
         logger=model_dict.logger,
-        eval_loader=model_dict.eval_loader,
+        eval_loader=eval_loader,
         train_loader=model_dict.train_loader,
         learning_rate_fn=model_dict.learning_rate_fn,
         preprocess_fn=model_dict.preprocess_fn,
@@ -490,7 +506,7 @@ def main_gen(config, output_dir="runs"):
         activation_fn=activation_fn,
         feature_params=variables,
         workdir=output_dir,
-        **config.train
+        **train_cfg,
     )
     mu.sync_global_devices("main_gen finished")
     del model_dict

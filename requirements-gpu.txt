@@ -7,7 +7,9 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 
 jax[cuda12]==0.4.37
-jaxlib==0.4.36+cuda12.cudnn91
+jaxlib==0.4.36
+jax-cuda12-plugin==0.4.36
+jax-cuda12-pjrt==0.4.36
 flax==0.10.4
 optax==0.2.5
 orbax-checkpoint==0.11.0

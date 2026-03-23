@@ -1,0 +1,44 @@
+{
+  "init_from": "hf://latent_L_sota",
+  "cfg_scale": 1.0,
+  "metadata": {
+    "schema_version": 1,
+    "artifact_type": "ema_model",
+    "kind": "gen",
+    "backend": "jax",
+    "model_id": "latent_L_sota",
+    "config_name": "latent_L_sota",
+    "config_path": "configs/gen/latent_sota_L.yaml",
+    "model_config": {
+      "cond_dim": 1024,
+      "input_size": 32,
+      "in_channels": 4,
+      "patch_size": 2,
+      "hidden_size": 1024,
+      "depth": 24,
+      "num_heads": 16,
+      "mlp_ratio": 4.0,
+      "out_channels": 4,
+      "use_qknorm": true,
+      "use_swiglu": true,
+      "use_rope": true,
+      "use_rmsnorm": true,
+      "n_cls_tokens": 16,
+      "noise_classes": 64,
+      "noise_coords": 32,
+      "use_bf16": true,
+      "attn_fp32": false,
+      "num_classes": 1000
+    },
+    "source": {
+      "step_requested": "200000",
+      "step_loaded": 200000,
+      "ema_requested": 0.9999,
+      "ema_selected": "0.9999"
+    }
+  },
+  "fid": 1.5397776953084303,
+  "isc_mean": 256.25162876958404,
+  "isc_std": 5.544135744257077,
+  "fid_time": 970.8263146877289
+}

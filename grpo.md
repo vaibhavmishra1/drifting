@@ -120,7 +120,7 @@ Five things differ from the original TPU setup:
 | # | What | TPU original | 8x H100 |
 |---|---|---|---|
 | 1 | **JAX install** | `jax[tpu]` via `requirements.txt` | `jax[cuda12]` via `requirements-gpu.txt` |
-| 2 | **Platform env var** | `JAX_PLATFORMS=tpu,cpu` | `JAX_PLATFORMS=cuda` |
+| 2 | **Platform env var** | `JAX_PLATFORMS=tpu,cpu` | `JAX_PLATFORMS=cuda,cpu` |
 | 3 | **`hsdp_dim`** | 8 | 8 (unchanged — pure FSDP across 8 GPUs) |
 | 4 | **`push_per_step`** | 64 (×32 TPU hosts = 2048/step global) | 2048 (×1 process = 2048/step global) |
 | 5 | **`eval_batch_size`** | 2048 | 128 (VAE decoding is memory-heavy; reduce to avoid OOM) |
@@ -163,7 +163,8 @@ conda activate drifting-release
 pip install -r requirements-gpu.txt
 
 # Tell JAX to use CUDA — do NOT set JAX_PLATFORMS=tpu,cpu
-export JAX_PLATFORMS=cuda
+# cpu must be included so the Flax VAE loader can put weights on CPU first.
+export JAX_PLATFORMS=cuda,cpu
 ```
 
 Verify JAX sees all 8 GPUs:
@@ -205,7 +206,7 @@ Expected: FID ~1.53–1.54, IS ~260
 ### Run AWD Post-Training — 8x H100
 
 ```bash
-export JAX_PLATFORMS=cuda
+export JAX_PLATFORMS=cuda,cpu
 python main.py --gen --config configs/gen/latent_awd_L.yaml --workdir runs/awd_latent_L
 ```
 

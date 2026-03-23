@@ -68,14 +68,14 @@ def run_init():
     elif os.environ.get("DRIFTING_NO_DISTRIBUTED_INIT", "").lower() in ("1", "true", "yes"):
         pass
     else:
-        # One visible GPU + one process: the default JAX client is enough. Using
-        # jax.distributed.initialize() with a localhost coordinator has triggered
-        # ``PjRtDevice not found: cuda:0`` when running FID ``generate_step`` on
-        # some CUDA + jaxlib builds.
-        multi_proc_hint = int(os.environ.get("WORLD_SIZE", "1")) > 1 or int(
-            os.environ.get("DRIFTING_JAX_NUM_PROCESSES", "1")
-        ) > 1
-        if jax.local_device_count() == 1 and not multi_proc_hint:
+        # Decide whether to call jax.distributed.initialize() purely from env vars,
+        # without calling jax.local_device_count() first. JAX 0.4.37+ raises if any
+        # JAX computation (including device enumeration) runs before initialize().
+        num_processes = int(os.environ.get("DRIFTING_JAX_NUM_PROCESSES", "1"))
+        multi_proc_hint = int(os.environ.get("WORLD_SIZE", "1")) > 1 or num_processes > 1
+        if not multi_proc_hint:
+            # Single-process: skip distributed init entirely to avoid the
+            # ``PjRtDevice not found: cuda:0`` issue on CUDA + jaxlib builds.
             _did_run_init = True
             return
         port = os.environ.get("DRIFTING_JAX_COORDINATOR_PORT", "12355")
@@ -83,7 +83,7 @@ def run_init():
         coord = os.environ.get("JAX_COORDINATOR_ADDRESS", default_coord)
         jax.distributed.initialize(
             coordinator_address=coord,
-            num_processes=int(os.environ.get("DRIFTING_JAX_NUM_PROCESSES", "1")),
+            num_processes=num_processes,
             process_id=int(os.environ.get("DRIFTING_JAX_PROCESS_ID", "0")),
         )
     _did_run_init = True
