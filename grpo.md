@@ -105,6 +105,34 @@ New config for AWD post-training of Drift-L. Key differences from `latent_sota_L
 - `awd_tau_max: 10.0 -> awd_tau_min: 0.5` — tau annealing schedule
 - `resume_from: ""` — optional: restore full training state from another workdir
 
+### `requirements-gpu.txt` (new file)
+
+GPU drop-in replacement for `requirements.txt`. The only differences:
+- Source index: `jax_cuda_releases.html` instead of `libtpu_releases.html`
+- Package: `jax[cuda12]==0.4.37` + `jaxlib==0.4.36+cuda12.cudnn91` instead of `jax[tpu]`
+
+---
+
+## 8x H100 — What Changes vs TPU
+
+Five things differ from the original TPU setup:
+
+| # | What | TPU original | 8x H100 |
+|---|---|---|---|
+| 1 | **JAX install** | `jax[tpu]` via `requirements.txt` | `jax[cuda12]` via `requirements-gpu.txt` |
+| 2 | **Platform env var** | `JAX_PLATFORMS=tpu,cpu` | `JAX_PLATFORMS=cuda` |
+| 3 | **`hsdp_dim`** | 8 | 8 (unchanged — pure FSDP across 8 GPUs) |
+| 4 | **`push_per_step`** | 64 (×32 TPU hosts = 2048/step global) | 2048 (×1 process = 2048/step global) |
+| 5 | **`eval_batch_size`** | 2048 | 128 (VAE decoding is memory-heavy; reduce to avoid OOM) |
+
+**Why `push_per_step` must increase:** the memory bank is per-process. The SOTA TPU run uses 32 hosts each pushing 64 images/step = 2048 images/step globally. On a single-process H100 node you are 1 host, so you must push 2048 yourself to maintain the same bank refresh rate.
+
+**Why `hsdp_dim` stays 8:** with 1 process and 8 GPUs, `jax.process_count()=1` and `jax.local_device_count()=8`. The mesh becomes `(1, 8)` → `data=1, fsdp=8` — pure FSDP sharding across all 8 GPUs. Model weights are sharded; no data replication. This is the correct single-node setup.
+
+**Distributed init on GPU:** handled automatically by `run_init()` in `utils/misc.py`. For a single-process 8-GPU node it calls `jax.distributed.initialize()` with a localhost coordinator. No `torchrun` or `mpirun` needed — just run `python main.py ...` directly.
+
+---
+
 ### `main.py` / `train.py` CLI
 
 New flags (override config values):
@@ -125,7 +153,27 @@ Added `resume_from=""` parameter. The checkpoint loading priority is now:
 
 ## Commands
 
-### Environment Setup
+### Environment Setup — 8x H100 (GPU)
+
+```bash
+conda create -n drifting-release python=3.10 -y
+conda activate drifting-release
+
+# Use the GPU requirements file (not requirements.txt which targets TPU)
+pip install -r requirements-gpu.txt
+
+# Tell JAX to use CUDA — do NOT set JAX_PLATFORMS=tpu,cpu
+export JAX_PLATFORMS=cuda
+```
+
+Verify JAX sees all 8 GPUs:
+
+```bash
+python -c "import jax; print(jax.devices())"
+# Expected: [CudaDevice(id=0), ..., CudaDevice(id=7)]
+```
+
+### Environment Setup — TPU (original)
 
 ```bash
 conda create -n drifting-release python=3.10 -y
@@ -154,9 +202,10 @@ python inference.py --init-from "hf://latent_L_sota" --cfg-scale 1.0 \
 
 Expected: FID ~1.53–1.54, IS ~260
 
-### Run AWD Post-Training
+### Run AWD Post-Training — 8x H100
 
 ```bash
+export JAX_PLATFORMS=cuda
 python main.py --gen --config configs/gen/latent_awd_L.yaml --workdir runs/awd_latent_L
 ```
 

@@ -1,6 +1,11 @@
 # Advantage-Weighted Drifting (AWD) post-training for Drift-L (latent).
 # Initializes from the pre-trained hf://latent_L_sota checkpoint and
 # fine-tunes with GRPO-style distributional reweighting.
+#
+# Tuned for 8x H100 (single node, 1 process, 8 GPUs).
+# hsdp_dim=8 → pure FSDP across all 8 GPUs, data=1 replica.
+# push_per_step=2048 compensates for single-process memory bank
+# (vs 32 hosts on the original SOTA TPU run).
 
 hsdp_dim: 8
 
@@ -64,7 +69,8 @@ train:
   neg_per_sample: 32
   positive_bank_size: 128
   negative_bank_size: 1000
-  push_per_step: 64
+  push_per_step: 2048   # increased from 64: compensates for 1 process vs 32 TPU hosts
+  eval_batch_size: 128  # reduce from 2048 to avoid VAE OOM on H100 during FID eval
   init_from: "hf://latent_L_sota"
   resume_from: ""  # set to a workdir path to resume full state (params+optimizer+EMA+step)
 

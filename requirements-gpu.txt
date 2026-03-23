@@ -1,18 +1,22 @@
-# GPU (CUDA 12) training stack for drifting — use after:
-#   pip install -U "jax[cuda12_pip]==0.4.37" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-# Pin NumPy for upstream stacks that expect np 1.x APIs.
-numpy<2
+# GPU (CUDA 12) requirements for 8xH100 / single-node training.
+# Replaces requirements.txt (which targets TPU).
+# Install with:
+#   pip install -r requirements-gpu.txt
 
+-f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+jax[cuda12]==0.4.37
+jaxlib==0.4.36+cuda12.cudnn91
 flax==0.10.4
 optax==0.2.5
 orbax-checkpoint==0.11.0
+numpy<2
 ml-dtypes==0.5.4
 tensorstore==0.1.78
 
-# PyTorch with CUDA (VAE + DataLoader). Match CUDA 12 wheels.
---extra-index-url https://download.pytorch.org/whl/cu124
-torch==2.4.0+cu124
-torchvision==0.19.0+cu124
+torch==2.4.0+cpu
+torchvision==0.19.0+cpu
 
 diffusers==0.37.0
 transformers==5.3.0
@@ -40,4 +44,3 @@ sympy==1.14.0
 tokenizers==0.22.2
 tqdm==4.67.3
 wandb==0.25.1
-datasets>=2.14.0
