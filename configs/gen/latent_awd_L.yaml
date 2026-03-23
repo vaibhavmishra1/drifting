@@ -59,17 +59,17 @@ optimizer:
   adam_b2: 0.95
 
 train:
-  train_batch_size: 128
+  train_batch_size: 16
   seed: 42
   total_steps: 20000
   save_per_step: 4000
   eval_per_step: 4000
   eval_samples: 50000
-  pos_per_sample: 64
-  neg_per_sample: 32
+  pos_per_sample: 16
+  neg_per_sample: 8
   positive_bank_size: 128
   negative_bank_size: 1000
-  push_per_step: 2048   # increased from 64: compensates for 1 process vs 32 TPU hosts
+  push_per_step: 256
   eval_batch_size: 128  # reduce from 2048 to avoid VAE OOM on H100 during FID eval
   init_from: "hf://latent_L_sota"
   resume_from: ""  # set to a workdir path to resume full state (params+optimizer+EMA+step)
@@ -79,7 +79,7 @@ train:
   awd_tau_min: 0.5
 
   forward_dict:
-    gen_per_label: 64
+    gen_per_label: 8
     cfg_min: 1.0
     cfg_max: 4.0
     neg_cfg_pw: 3.0
@@ -89,7 +89,7 @@ train:
     patch_std_size: [2, 4]
     use_std: true
     use_mean: true
-    every_k_block: 2
+    every_k_block: 4
   loss_kwargs:
     R_list: [0.2, 0.05, 0.02]
     use_awd: false
