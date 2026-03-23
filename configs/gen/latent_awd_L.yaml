@@ -63,10 +63,10 @@ train:
   seed: 42
   total_steps: 20000
   save_per_step: 4000
-  eval_per_step: 4000
+  eval_per_step: 30000
   eval_samples: 50000
-  pos_per_sample: 16
-  neg_per_sample: 8
+  pos_per_sample: 32
+  neg_per_sample: 16
   positive_bank_size: 128
   negative_bank_size: 1000
   push_per_step: 256
@@ -79,7 +79,7 @@ train:
   awd_tau_min: 0.5
 
   forward_dict:
-    gen_per_label: 8
+    gen_per_label: 32
     cfg_min: 1.0
     cfg_max: 4.0
     neg_cfg_pw: 3.0
@@ -92,7 +92,7 @@ train:
     every_k_block: 4
   loss_kwargs:
     R_list: [0.2, 0.05, 0.02]
-    use_awd: false
+    use_awd: true
     awd_lambda: 0.1
     awd_bandwidth: 0.05
   cfg_list: [1.0, 1.1, 1.2, 1.4, 1.6, 1.8, 2.0, 2.5, 3.0, 3.5]
@@ -102,3 +102,4 @@ feature:
   mae_path: "hf://mae_latent_640"
   use_mae: true
   use_convnext: false
+
