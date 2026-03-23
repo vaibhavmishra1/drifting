@@ -240,7 +240,10 @@ def evaluate_fid(
         mask = jax.device_put(mask, ddp_shard())
         all_samples.append(_to_uint8(_to_local_cpu(gen_samples)))
         all_masks.append(_to_local_cpu(mask))
+        prev = cur
         cur += gen_samples.shape[0]
+        if prev // 1000 != cur // 1000:
+            print(f"[eval] {cur}/{num_samples} samples generated ({time.time() - start:.1f}s)", flush=True)
         if cur >= num_samples:
             break
 

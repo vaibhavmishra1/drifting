@@ -45,7 +45,10 @@ def vae_enc_decode(replicate_params: bool = True):
         mesh = get_global_mesh()
         replicated_sharding = NamedSharding(mesh, P())
         def _replicate(x):
-            x = jnp.asarray(x) if isinstance(x, np.ndarray) else x
+            # diffusers may return CPU-backed jax.Array leaves; convert through host
+            # memory so we can safely re-place onto the current process mesh.
+            if isinstance(x, (np.ndarray, jax.Array)):
+                x = jnp.asarray(np.asarray(x))
             if jax.process_count() > 1:
                 return jax.make_array_from_process_local_data(replicated_sharding, x)
             return jax.device_put(x, replicated_sharding)

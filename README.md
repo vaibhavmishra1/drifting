@@ -111,8 +111,12 @@ All artifacts are hosted on HuggingFace at [`Goodeat/drifting`](https://huggingf
 conda create -n drifting-release python=3.10 -y
 conda activate drifting-release
 pip install -r requirements.txt
-export JAX_PLATFORMS=tpu,cpu
 ```
+
+Platform note:
+
+- TPU: `export JAX_PLATFORMS=tpu,cpu`
+- GPU: `export JAX_PLATFORMS=gpu,cpu` (or leave it unset)
 
 For local TPU runs, keep `JAX_PLATFORMS=tpu,cpu` in the shell before running
 latent-cache building, training, or evaluation. This keeps TPU as the default

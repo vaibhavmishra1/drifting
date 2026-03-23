@@ -54,7 +54,13 @@ def run_init():
     global _did_run_init
     if _did_run_init:
         return
-    jax.distributed.initialize()
+    # Multi-host TPU / Slurm / etc. need jax.distributed.initialize(). On a
+    # single machine there is no coordinator; JAX raises ValueError if we call it.
+    try:
+        jax.distributed.initialize()
+    except ValueError as e:
+        if "coordinator_address" not in str(e):
+            raise
     _did_run_init = True
 
 
