@@ -66,11 +66,13 @@ def run_eval_fid(
     gen_step_jit, params, metadata, init_from: str, workdir: str,
     *, num_samples: int, cfg_scale: float, eval_batch_size: int,
     use_wandb: bool, wandb_entity: str | None, wandb_project: str, wandb_name: str | None,
+    class_subset: list[int] | None = None,
 ) -> dict:
     eval_loader, _, _ = create_imagenet_split(
         resolution=256, split="val",
         batch_size=eval_batch_size // jax.process_count(),
         num_workers=0,
+        class_subset=class_subset,
     )
 
     work_path = Path(workdir).resolve()
@@ -116,6 +118,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--wandb-entity", type=str, default=None)
     parser.add_argument("--wandb-project", type=str, default="release-fid")
     parser.add_argument("--wandb-name", type=str, default=None)
+    parser.add_argument("--num-classes", type=int, default=None,
+                        help="Number of classes (overrides metadata). Use with --class-subset.")
+    parser.add_argument("--class-subset", type=str, default=None,
+                        help="Comma-separated original ImageNet class indices to use, e.g. '0,1,2,3,4,5,6,7,8,9'.")
     return parser
 
 
@@ -123,6 +129,11 @@ def run_inference_from_args(args: argparse.Namespace) -> dict:
     hsdp = args.hsdp_dim or min(8, jax.local_device_count() * jax.process_count())
     set_global_mesh(hsdp)
     gen_step_jit, params, metadata = _load_model(args.init_from)
+
+    class_subset = None
+    if args.class_subset is not None:
+        class_subset = [int(c.strip()) for c in args.class_subset.split(",")]
+
     result = run_eval_fid(
         gen_step_jit, params, metadata, args.init_from, args.workdir,
         num_samples=args.num_samples,
@@ -132,6 +143,7 @@ def run_inference_from_args(args: argparse.Namespace) -> dict:
         wandb_entity=args.wandb_entity,
         wandb_project=args.wandb_project,
         wandb_name=args.wandb_name,
+        class_subset=class_subset,
     )
     return result
 

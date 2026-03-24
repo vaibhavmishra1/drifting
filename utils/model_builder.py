@@ -52,6 +52,9 @@ def build_model_dict(config, model_class, *, workdir: str = "runs"):
     use_aug = bool(config.dataset.get("use_aug", False))
     use_latent = bool(config.dataset.get("use_latent", False))
     use_cache = bool(config.dataset.get("use_cache", False))
+    class_subset = config.dataset.get("class_subset", None)
+    if class_subset is not None:
+        class_subset = [int(c) for c in class_subset]
 
     train_loader, preprocess_fn, postprocess_fn = create_imagenet_split(
         resolution=resolution,
@@ -60,6 +63,7 @@ def build_model_dict(config, model_class, *, workdir: str = "runs"):
         use_cache=use_cache,
         batch_size=batch_size_per_node,
         split="train",
+        class_subset=class_subset,
         **config.dataset.kwargs,
     )
 
@@ -70,6 +74,7 @@ def build_model_dict(config, model_class, *, workdir: str = "runs"):
         use_cache=use_cache,
         batch_size=config.dataset.eval_batch_size // jax.process_count(),
         split="val",
+        class_subset=class_subset,
         **config.dataset.kwargs,
     )
 

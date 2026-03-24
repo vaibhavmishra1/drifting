@@ -248,6 +248,7 @@ def train_gen(
     awd_tau_min=0.5,  # AWD: final temperature after linear annealing
     resume_from="",  # restore full TrainState (params+optimizer+EMA+step) from this workdir
     workdir="runs",  # run root containing checkpoints/logs
+    num_classes=1000,  # number of classes for memory bank
 ):
     """
     Main training loop.
@@ -304,7 +305,7 @@ def train_gen(
     step = int(state.step)
     initial_step = step
     pbar = tqdm(range(step, total_steps), initial=step, total=total_steps) if is_rank_zero() else range(step, total_steps)
-    memory_bank_positive = ArrayMemoryBank(num_classes=1000, max_size=positive_bank_size)
+    memory_bank_positive = ArrayMemoryBank(num_classes=num_classes, max_size=positive_bank_size)
     memory_bank_negative = ArrayMemoryBank(num_classes=1, max_size=negative_bank_size)
     mu.sync_global_devices("train loop started")
     train_iter = infinite_sampler(train_loader, step)
@@ -478,6 +479,10 @@ def main_gen(config, output_dir="runs"):
         postprocess_fn=postprocess_fn_noclip,
     )
     train_cfg = dict(config.train)
+    num_classes = int(config.dataset.num_classes)
+    class_subset = config.dataset.get("class_subset", None)
+    if class_subset is not None:
+        class_subset = [int(c) for c in class_subset]
     # eval_batch_size in train config overrides the dataset-level eval batch size.
     # Rebuild eval_loader with the smaller batch to avoid OOM during FID VAE decoding.
     eval_loader = model_dict.eval_loader
@@ -491,6 +496,7 @@ def main_gen(config, output_dir="runs"):
             use_cache=bool(config.dataset.get("use_cache", False)),
             batch_size=override_eval_bsz // jax.process_count(),
             split="val",
+            class_subset=class_subset,
             **config.dataset.kwargs,
         )
     train_gen(
@@ -506,6 +512,7 @@ def main_gen(config, output_dir="runs"):
         activation_fn=activation_fn,
         feature_params=variables,
         workdir=output_dir,
+        num_classes=num_classes,
         **train_cfg,
     )
     mu.sync_global_devices("main_gen finished")

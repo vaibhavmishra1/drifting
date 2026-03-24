@@ -30,6 +30,22 @@ from dataset.vae import vae_enc_decode
 from utils.env import IMAGENET_PATH, IMAGENET_CACHE_PATH
 from utils.logging import log_for_0
 
+
+class ClassSubsetDataset(torch.utils.data.Dataset):
+    """Wraps a DatasetFolder-style dataset to keep only selected classes and remap labels to 0..K-1."""
+
+    def __init__(self, dataset, class_subset):
+        self.dataset = dataset
+        self.label_map = {orig: new for new, orig in enumerate(class_subset)}
+        self.indices = [i for i, (_, label) in enumerate(dataset.samples) if label in self.label_map]
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        data, label = self.dataset[self.indices[idx]]
+        return data, self.label_map[label]
+
 def center_crop_arr(pil_image: Image.Image, image_size: int) -> Image.Image:
     """Center-crop image with ADM preprocessing style."""
     while min(*pil_image.size) >= 2 * image_size:
@@ -104,6 +120,7 @@ def create_imagenet_split(
     prefetch_factor: int = 2,
     pin_memory: bool = False,
     local: bool | None = None,
+    class_subset: list[int] | None = None,
 ):
     """Create ImageNet split loader and preprocess/postprocess functions.
 
@@ -136,6 +153,9 @@ def create_imagenet_split(
         use_cache=use_cache,
         split=split,
     )
+    if class_subset is not None:
+        ds = ClassSubsetDataset(ds, class_subset)
+        log_for_0("Filtered to %d classes (%d samples)", len(class_subset), len(ds))
     log_for_0(ds)
 
     rank = jax.process_index()
