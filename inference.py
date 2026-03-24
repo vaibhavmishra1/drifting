@@ -67,6 +67,7 @@ def run_eval_fid(
     *, num_samples: int, cfg_scale: float, eval_batch_size: int,
     use_wandb: bool, wandb_entity: str | None, wandb_project: str, wandb_name: str | None,
     class_subset: list[int] | None = None,
+    ref_npz: str | None = None,
 ) -> dict:
     eval_loader, _, _ = create_imagenet_split(
         resolution=256, split="val",
@@ -95,10 +96,11 @@ def run_eval_fid(
         num_samples=num_samples,
         log_folder="fid_eval",
         log_prefix=f"cfg_{cfg_scale:g}",
-        eval_prc_recall=(num_samples >= 50000),
+        eval_prc_recall=False,
         eval_isc=True,
         eval_fid=True,
         rng_eval=jax.random.PRNGKey(0),
+        ref_npz=ref_npz,
     )
     logger.finish()
     return {"init_from": init_from, "cfg_scale": cfg_scale, "metadata": metadata, **metrics}
@@ -122,6 +124,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Number of classes (overrides metadata). Use with --class-subset.")
     parser.add_argument("--class-subset", type=str, default=None,
                         help="Comma-separated original ImageNet class indices to use, e.g. '0,1,2,3,4,5,6,7,8,9'.")
+    parser.add_argument("--ref-npz", type=str, default=None,
+                        help="Path to a pre-built reference .npz (mu/sigma) for FID. "
+                             "Required for correct FID when evaluating a class subset. "
+                             "Build one with: python -m utils.build_ref_stats --class-subset 0,1,...,9 --out ref_10cls.npz")
     return parser
 
 
@@ -144,6 +150,7 @@ def run_inference_from_args(args: argparse.Namespace) -> dict:
         wandb_project=args.wandb_project,
         wandb_name=args.wandb_name,
         class_subset=class_subset,
+        ref_npz=args.ref_npz or None,
     )
     return result
 

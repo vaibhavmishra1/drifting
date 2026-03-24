@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Dict
 
 import jax
@@ -165,13 +166,64 @@ def _compute_inception_score(logits, splits=10):
     return float(np.mean(scores)), float(np.std(scores))
 
 
-def _load_ref_stats(dataset_name: str):
+def _load_ref_stats(dataset_name: str, ref_npz: str | None = None):
+    if ref_npz is not None:
+        data = np.load(ref_npz)
+        if "ref_mu" in data:
+            return {"mu": data["ref_mu"], "sigma": data["ref_sigma"]}
+        return {"mu": data["mu"], "sigma": data["sigma"]}
     canon = _canonical_dataset_name(dataset_name)
     path = _DATASET_STATS[canon]
     data = np.load(path)
     if "ref_mu" in data:
         return {"mu": data["ref_mu"], "sigma": data["ref_sigma"]}
     return {"mu": data["mu"], "sigma": data["sigma"]}
+
+
+def build_ref_stats_from_loader(eval_loader, num_samples: int, out_npz: str) -> None:
+    """Compute Inception reference statistics from real images and save to a .npz file.
+
+    Args:
+        eval_loader: DataLoader yielding ``(images, labels)`` batches of real images.
+            Images should be in ``BCHW`` or ``BHWC`` uint8/float format.
+        num_samples: How many real images to use for the reference stats.
+        out_npz: Output path for the .npz file (keys: ``mu``, ``sigma``).
+    """
+    from dataset.dataset import epoch0_sampler
+    from utils.hsdp_util import pad_and_merge, ddp_shard
+    from dataset.vae import vae_enc_decode
+    import jax
+
+    _, decode_fn = vae_enc_decode()
+
+    def decode_batch(latent):
+        out = (decode_fn(latent) + 1) / 2
+        return np.clip(np.asarray(out), 0, 1)
+
+    eval_iter = epoch0_sampler(eval_loader)
+    all_samples = []
+    all_masks = []
+    cur = 0
+    goal_bsz = None
+    for i, batch in enumerate(eval_iter):
+        images, _ = batch
+        if goal_bsz is None:
+            goal_bsz = images.shape[0]
+        batch, mask = pad_and_merge(batch, goal_bsz)
+        images_padded, _ = batch
+        decoded = decode_batch(np.asarray(images_padded))
+        all_samples.append(_to_uint8(decoded))
+        all_masks.append(np.asarray(mask))
+        cur += images.shape[0]
+        if cur >= num_samples:
+            break
+
+    samples = np.concatenate(all_samples, axis=0)
+    masks = np.concatenate(all_masks, axis=0)
+    stats = _compute_stats(samples, num_samples, compute_logits=False, compute_features=False, masks=masks)
+    Path(out_npz).parent.mkdir(parents=True, exist_ok=True)
+    np.savez(out_npz, mu=stats["mu"], sigma=stats["sigma"])
+    log_for_0("Saved reference stats (%d samples) to %s", num_samples, out_npz)
 
 
 def evaluate_fid(
@@ -187,6 +239,7 @@ def evaluate_fid(
     eval_isc=True,
     eval_fid=True,
     rng_eval=None,
+    ref_npz: str | None = None,
 ):
     """Generate samples, run Inception statistics, and log release metrics.
 
@@ -248,7 +301,7 @@ def evaluate_fid(
     masks = np.concatenate(all_masks, axis=0)
 
     stats = _compute_stats(samples, num_samples, compute_logits=eval_isc, compute_features=eval_prc_recall, masks=masks)
-    ref = _load_ref_stats(dataset_name)
+    ref = _load_ref_stats(dataset_name, ref_npz=ref_npz)
 
     metrics: Dict[str, float] = {}
     if eval_fid:
